@@ -9,7 +9,7 @@ def extract_pdf_elements(file_path: str):
         chunks = partition_pdf(
             filename=file_path,
             infer_table_structure=True,
-            strategy="hi_res",
+            strategy="fast",
             extract_image_block_types=["Image"],
             extract_image_block_to_payload=True,
             chunking_strategy="by_title",

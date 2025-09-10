@@ -9,7 +9,7 @@ def store_documents(retriever, elements, summaries, doc_type):
     Stores elements + summaries into the vectorstore and docstore.
     elements: full objects (text/table/image b64)
     summaries: short summaries (strings) for embeddings
-    id_key: metadata key used for linking
+    doc_type: "text" | "table" | "image"
     """
     if not elements or not summaries:
         return []
@@ -18,14 +18,17 @@ def store_documents(retriever, elements, summaries, doc_type):
 
     # 1) Create retrievable summary docs
     summary_docs = [
-        Document(page_content=summaries[i], metadata={doc_type: ids[i]})
+        Document(
+            page_content=summaries[i],
+            metadata={"doc_id": ids[i], "type": doc_type}
+        )
         for i in range(len(summaries))
         if summaries[i] and summaries[i].strip()
     ]
 
     if not summary_docs:
         print("⚠️ No valid summaries to store (all empty).")
-        return
+        return []
 
     # Add summaries to vectorstore
     retriever.vectorstore.add_documents(summary_docs)
@@ -35,12 +38,14 @@ def store_documents(retriever, elements, summaries, doc_type):
         (
             ids[i],
             Document(
-                page_content=getattr(elements[i], "text", str(elements[i])), 
-                metadata={doc_type: ids[i]}
+                page_content=getattr(elements[i], "text", str(elements[i])),
+                metadata={"doc_id": ids[i], "type": doc_type}
             )
         )
         for i in range(len(elements))
     ])
+
+    return ids  # ✅ always return a list
 
 def setup_retriever(vectorstore):
     """
@@ -50,6 +55,6 @@ def setup_retriever(vectorstore):
     retriever = MultiVectorRetriever(
         vectorstore=vectorstore,
         docstore=store,
-        id_key="doc_id",
+        id_key="doc_id",  # must match metadata above
     )
     return retriever

@@ -6,6 +6,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import os
+print("Groq Key:", os.getenv("GROQ_API_KEY"))
+
 # -----------------------------
 # Setup summarization chain
 # -----------------------------
@@ -19,38 +22,45 @@ Content:
 """
 
 prompt = ChatPromptTemplate.from_template(prompt_text)
-model = ChatGroq(temperature=0.5, model="llama-3.1-8b-instant")
+model = ChatGroq(
+    temperature=0.5,
+    model="llama-3.1-8b-instant",
+    api_key=os.getenv("GROQ_API_KEY")  # <- force inject
+)
+
 summarize_chain = {"element": lambda x: x} | prompt | model | StrOutputParser()
 
 # -----------------------------
 # Safe batch summarization
 # -----------------------------
-def safe_batch(inputs, max_concurrency=1, retry_delay=15, retries=3):
+def safe_batch(inputs, batch_size=1, retry_delay=20, retries=3):
+    """
+    Summarize inputs in smaller batches to avoid hitting Groq's rate limits.
+    """
     filtered_inputs = [x for x in inputs if isinstance(x, str) and x.strip()]
     if not filtered_inputs:
         print("⚠️ No valid inputs to summarize.")
         return [""] * len(inputs)
 
-    for attempt in range(retries):
-        try:
-            summaries = summarize_chain.batch(filtered_inputs, {"max_concurrency": max_concurrency})
-            # Map back to original structure
-            result = []
-            j = 0
-            for x in inputs:
-                if isinstance(x, str) and x.strip():
-                    result.append(summaries[j])
-                    j += 1
+    results = []
+    for i in range(0, len(filtered_inputs), batch_size):
+        chunk = filtered_inputs[i:i+batch_size]
+        for attempt in range(retries):
+            try:
+                summaries = summarize_chain.batch(chunk, {"max_concurrency": 1})
+                results.extend(summaries)
+                break  # success, break retry loop
+            except Exception as e:
+                print(f"❌ Summarization error: {e}")
+                if "rate limit" in str(e).lower() or "429" in str(e):
+                    print(f"[Rate Limit] Waiting {retry_delay}s... (Attempt {attempt+1}/{retries})")
+                    time.sleep(retry_delay)
                 else:
-                    result.append("")
-            return result
-        except Exception as e:
-            if "rate limit" in str(e).lower():
-                print(f"[Rate Limit] Waiting {retry_delay}s... (Attempt {attempt+1}/{retries})")
-                time.sleep(retry_delay)
-            else:
-                raise
-    raise Exception("❌ Exceeded retries due to rate limiting.")
+                    raise
+        else:
+            raise Exception("❌ Exceeded retries for summarization.")
+    return results
+
 
 # -----------------------------
 # Exported functions
