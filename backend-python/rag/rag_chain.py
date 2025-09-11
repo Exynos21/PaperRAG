@@ -128,25 +128,31 @@ def get_rag_chain(retriever):
 def get_rag_chain_with_sources(retriever):
     llm = get_llm()
 
+    # Step 1: retrieve + parse
+    def retrieve_and_parse(input):
+        docs = retriever.vectorstore.similarity_search(input["question"], k=3)
+        return parse_docs(docs)
+
+    # Step 2: build the answer prompt
+    def build_input(inputs):
+        context = retrieve_and_parse(inputs)
+        prompt = build_prompt({"context": context, "question": inputs["question"]})
+        return {"prompt": prompt, "context": context, "question": inputs["question"]}
+
+    # Step 3: format final output with sources
     def format_with_sources(kwargs):
-        docs_by_type = kwargs["context"]
         answer = kwargs["answer"]
+        docs_by_type = kwargs.get("context", {"texts": []})
         sources = [
-            getattr(t, "page_content", str(t))[:200] for t in docs_by_type["texts"]
-        ]  # preview first 200 chars
+            getattr(t, "page_content", str(t))[:200] for t in docs_by_type.get("texts", [])
+        ]
         return {"answer": answer, "sources": sources}
 
     return (
-        {
-            "context": RunnableLambda(
-                lambda x: retriever.vectorstore.similarity_search(x["question"], k=3)
-            )
-            | RunnableLambda(parse_docs),
-            "question": RunnablePassthrough(),
+        RunnableLambda(build_input)
+        | {
+            "answer": (RunnableLambda(lambda x: x["prompt"]) | llm | StrOutputParser()),
+            "context": RunnableLambda(lambda x: x["context"]),
         }
-        | RunnableLambda(build_prompt)
-        | llm
-        | StrOutputParser()
-        | RunnableLambda(lambda ans: {"answer": ans})
         | RunnableLambda(format_with_sources)
     )

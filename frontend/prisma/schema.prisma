@@ -8,8 +8,16 @@ datasource db {
 }
 
 model Session {
+  id        Int       @id @default(autoincrement())
+  createdAt DateTime  @default(now())
+  messages  Message[]
+}
+
+model Message {
   id        Int      @id @default(autoincrement())
   createdAt DateTime @default(now())
-  question  String
-  answer    String
+  role      String
+  content   String
+  session   Session  @relation(fields: [sessionId], references: [id])
+  sessionId Int
 }
