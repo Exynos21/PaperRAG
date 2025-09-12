@@ -1,8 +1,7 @@
 // frontend/pages/index.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { trpc } from "../utils/trpc";
 import { useQueryClient } from "@tanstack/react-query";
-
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
@@ -12,68 +11,70 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
 
   const queryClient = useQueryClient();
-
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   // tRPC hooks
   const createSession = trpc.session.create.useMutation();
   const getMessages = trpc.session.getMessages.useQuery(
-    sessionId ? { sessionId } : undefined,
+    (sessionId ? { sessionId } : undefined) as any,
     { enabled: !!sessionId }
   );
   const addMessage = trpc.session.addMessage.useMutation();
   const queryMut = trpc.query.useMutation();
 
-  // 🔹 On mount: restore sessionId from localStorage
+  // Restore session
   useEffect(() => {
     const stored = localStorage.getItem("sessionId");
-    if (stored) {
-      setSessionId(Number(stored));
-    }
+    if (stored) setSessionId(Number(stored));
   }, []);
 
-  // ensure session helper
+  // Auto-scroll to bottom
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [getMessages.data]);
+
   async function ensureSession() {
     if (sessionId) return sessionId;
     const s = await createSession.mutateAsync();
     setSessionId(s.id);
-    localStorage.setItem("sessionId", String(s.id)); // 🔹 persist session
+    localStorage.setItem("sessionId", String(s.id));
     return s.id;
   }
 
-  async function handleUpload() {
-    if (!file) return alert("Choose a PDF first");
+  // ✅ Fixed handleUpload to use file state
+  const handleUpload = async () => {
+    if (!file) {
+      alert("Please select a PDF file first.");
+      return;
+    }
     setLoading(true);
     try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
-      if (!backendUrl) throw new Error("NEXT_PUBLIC_BACKEND_URL not set");
+      const formData = new FormData();
+      formData.append("file", file);
 
-      const form = new FormData();
-      form.append("file", file);
-
-      const res = await fetch(`${backendUrl.replace(/\/$/, "")}/ingest`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/ingest`, {
         method: "POST",
-        body: form,
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const json = await res.json();
-
-      setFileName(json.fileName || file.name);
-
-      const sid = await ensureSession();
-      await addMessage.mutateAsync({
-        sessionId: sid,
-        role: "assistant",
-        content: `Ingested file: ${json.fileName || file.name}`,
+        body: formData,
       });
 
-      getMessages.refetch();
-      alert("Ingested successfully");
-    } catch (e) {
-      alert("Upload failed: " + String(e));
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+
+      const data = await res.json();
+      console.log("Upload response:", data);
+
+      // store uploaded file name
+      setFileName(file.name);
+
+      alert("File uploaded successfully!");
+    } catch (err) {
+      console.error("Upload failed:", err);
+      alert("Upload failed: " + String(err));
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   async function handleAsk() {
     if (!question) return;
@@ -85,7 +86,6 @@ export default function Home() {
         sessionId: sid,
         fileName: fileName ?? undefined,
       });
-
       setQuestion("");
       getMessages.refetch();
     } catch (e) {
@@ -95,47 +95,76 @@ export default function Home() {
     }
   }
 
-  // 🔹 Reset chat (clear localStorage + new session on next action)
- function handleNewChat() {
+  function handleNewChat() {
     localStorage.removeItem("sessionId");
     setSessionId(null);
     setFileName(null);
     setQuestion("");
-
-    // clear cached messages
-    queryClient.removeQueries({ queryKey: [["session","getMessages"]] });
+    queryClient.removeQueries({ queryKey: [["session", "getMessages"]] });
   }
 
   return (
-    <main className="p-6 max-w-3xl mx-auto">
-      <h1 className="text-3xl font-bold mb-4">PaperRAG — Q&A Demo</h1>
+    <main className="flex flex-col h-screen">
+      {/* Header */}
+      <header className="p-4 bg-slate-800 text-white flex justify-between items-center">
+        <h1 className="text-2xl font-bold">📄 PaperRAG</h1>
+        <button
+          onClick={handleNewChat}
+          className="px-3 py-1 text-sm bg-red-600 rounded"
+        >
+          New Chat
+        </button>
+      </header>
 
-      <div className="mb-4">
+      {/* Chat area */}
+      <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
+        {getMessages.data?.map((m: any) => (
+          <div
+            key={m.id}
+            className={`mb-3 flex ${
+              m.role === "user" ? "justify-end" : "justify-start"
+            }`}
+          >
+            <div
+              className={`max-w-lg p-3 rounded-2xl shadow ${
+                m.role === "user"
+                  ? "bg-blue-600 text-white"
+                  : "bg-white border"
+              }`}
+            >
+              <div className="text-xs opacity-70">{m.role}</div>
+              <div className="mt-1 whitespace-pre-wrap">{m.content}</div>
+            </div>
+          </div>
+        ))}
+        {loading && (
+          <div className="text-gray-500 text-sm italic">Thinking...</div>
+        )}
+        <div ref={chatEndRef} />
+      </div>
+
+      {/* Input area */}
+      <div className="p-4 border-t bg-white flex gap-2">
         <input
           type="file"
           accept="application/pdf"
           onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          className="text-sm"
         />
         <button
           onClick={handleUpload}
-          className="ml-4 px-4 py-2 bg-slate-800 text-white rounded"
+          className="px-3 py-1 bg-slate-700 text-white rounded text-sm"
           disabled={loading}
         >
-          Upload & Index
+          Upload
         </button>
-        <div className="text-sm mt-2">
-          Ingested file: {fileName ?? "none"}
-        </div>
-      </div>
-
-      <textarea
-        className="w-full h-20 p-2 border rounded mb-2"
-        placeholder="Ask a question..."
-        value={question}
-        onChange={(e) => setQuestion(e.target.value)}
-      />
-
-      <div className="flex gap-2">
+        <input
+          type="text"
+          placeholder="Ask a question..."
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          className="flex-1 px-3 py-2 border rounded"
+        />
         <button
           onClick={handleAsk}
           className="px-4 py-2 bg-blue-600 text-white rounded"
@@ -143,27 +172,6 @@ export default function Home() {
         >
           Ask
         </button>
-        <button
-          onClick={handleNewChat}
-          className="px-4 py-2 border rounded"
-        >
-          New Chat
-        </button>
-      </div>
-
-      <div className="mt-6">
-        <h2 className="text-xl font-semibold mb-2">Conversation</h2>
-        {getMessages.data?.map((m: any) => (
-          <div
-            key={m.id}
-            className={`mb-3 p-3 rounded ${
-              m.role === "user" ? "bg-white border" : "bg-gray-100"
-            }`}
-          >
-            <div className="text-sm text-gray-600">{m.role}</div>
-            <div className="mt-1 whitespace-pre-wrap">{m.content}</div>
-          </div>
-        ))}
       </div>
     </main>
   );

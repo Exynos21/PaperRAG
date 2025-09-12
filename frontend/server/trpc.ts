@@ -5,6 +5,20 @@ import { prisma } from "../lib/prisma";
 
 const t = initTRPC.create();
 
+async function ensureSessionById(sessionId?: number) {
+  if (!sessionId) {
+    const s = await prisma.session.create({ data: {} });
+    return s.id;
+  }
+  // Try to find; if missing, create a session with that id using connectOrCreate pattern
+  const existing = await prisma.session.findUnique({ where: { id: sessionId } });
+  if (existing) return existing.id;
+
+  // If sessionId was provided but not present, create a fresh session (id will be new)
+  const s = await prisma.session.create({ data: {} });
+  return s.id;
+}
+
 export const appRouter = t.router({
   // sessions router
   session: t.router({
@@ -29,23 +43,30 @@ export const appRouter = t.router({
     addMessage: t.procedure
       .input(
         z.object({
-          sessionId: z.number(),
+          sessionId: z.number().optional(),
           role: z.enum(["user", "assistant"]),
           content: z.string(),
         })
       )
       .mutation(async ({ input }) => {
-        return prisma.message.create({
+        // Ensure session exists; returns a valid sessionId
+        const sid = await ensureSessionById(input.sessionId);
+
+        // Create message and connect to session (safe)
+        const msg = await prisma.message.create({
           data: {
-            sessionId: input.sessionId,
             role: input.role,
             content: input.content,
+            session: {
+              connect: { id: sid },
+            },
           },
         });
+        return msg;
       }),
   }),
 
-  // Query: build context -> call backend -> save messages
+  // Query: build context -> call backend -> save messages (user + assistant)
   query: t.procedure
     .input(
       z.object({
@@ -55,15 +76,11 @@ export const appRouter = t.router({
       })
     )
     .mutation(async ({ input }) => {
-      const backendUrl = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL;
+      const backendUrl = process.env.BACKEND_URL;
       if (!backendUrl) throw new Error("BACKEND_URL (or NEXT_PUBLIC_BACKEND_URL) must be set");
 
-      // ensure session
-      let sessionId = input.sessionId;
-      if (!sessionId) {
-        const s = await prisma.session.create({ data: {} });
-        sessionId = s.id;
-      }
+      // Ensure session exists (returns numeric id)
+      let sessionId = await ensureSessionById(input.sessionId);
 
       // fetch recent messages for context
       const msgs = await prisma.message.findMany({
@@ -93,13 +110,23 @@ export const appRouter = t.router({
 
       const data = await resp.json();
 
-      // persist user + assistant messages
-      await prisma.message.create({
-        data: { sessionId, role: "user", content: input.question },
-      });
-      await prisma.message.create({
-        data: { sessionId, role: "assistant", content: data.answer ?? "" },
-      });
+      // Persist user + assistant messages in a transaction to avoid partial writes
+      await prisma.$transaction([
+        prisma.message.create({
+          data: {
+            role: "user",
+            content: input.question,
+            session: { connect: { id: sessionId } },
+          },
+        }),
+        prisma.message.create({
+          data: {
+            role: "assistant",
+            content: data.answer ?? "",
+            session: { connect: { id: sessionId } },
+          },
+        }),
+      ]);
 
       // return backend result and sessionId for frontend
       return { ...data, sessionId };
