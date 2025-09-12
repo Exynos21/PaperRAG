@@ -1,7 +1,8 @@
-import { trpc } from "../utils/trpc";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { httpBatchLink } from "@trpc/client";
+// frontend/pages/_app.tsx
 import type { AppProps } from "next/app";
+import { trpc } from "../utils/trpc";
+import { httpBatchLink } from "@trpc/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const queryClient = new QueryClient();
 const trpcClient = trpc.createClient({
@@ -12,7 +13,7 @@ const trpcClient = trpc.createClient({
   ],
 });
 
-export default function MyApp({ Component, pageProps }: AppProps) {
+export default function App({ Component, pageProps }: AppProps) {
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>

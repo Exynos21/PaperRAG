@@ -6,7 +6,7 @@ import { prisma } from "../lib/prisma";
 const t = initTRPC.create();
 
 export const appRouter = t.router({
-  // session router
+  // sessions router
   session: t.router({
     create: t.procedure.mutation(async () => {
       const s = await prisma.session.create({ data: {} });
@@ -45,70 +45,65 @@ export const appRouter = t.router({
       }),
   }),
 
-  // Query procedure: builds context, forwards to FastAPI, stores messages
-query: t.procedure
-  .input(z.object({ question: z.string(), sessionId: z.number().optional() }))
-  .mutation(async ({ input }) => {
-    const backendUrl =
-      process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL;
-    if (!backendUrl) throw new Error("BACKEND_URL not set in .env.local");
+  // Query: build context -> call backend -> save messages
+  query: t.procedure
+    .input(
+      z.object({
+        question: z.string(),
+        sessionId: z.number().optional(),
+        fileName: z.string().optional(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const backendUrl = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL;
+      if (!backendUrl) throw new Error("BACKEND_URL (or NEXT_PUBLIC_BACKEND_URL) must be set");
 
-    let sessionId = input.sessionId;
-    if (!sessionId) {
-      const s = await prisma.session.create({ data: {} });
-      sessionId = s.id;
-    }
+      // ensure session
+      let sessionId = input.sessionId;
+      if (!sessionId) {
+        const s = await prisma.session.create({ data: {} });
+        sessionId = s.id;
+      }
 
-    const msgs = await prisma.message.findMany({
-      where: { sessionId },
-      orderBy: { createdAt: "asc" },
-    });
+      // fetch recent messages for context
+      const msgs = await prisma.message.findMany({
+        where: { sessionId },
+        orderBy: { createdAt: "asc" },
+      });
 
-    const recent = msgs.slice(-8);
-    const prefix = recent
-      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
-      .join("\n");
+      const MAX_CONTEXT_MESSAGES = 8;
+      const recent = msgs.slice(-MAX_CONTEXT_MESSAGES);
+      const prefix = recent.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n");
 
-    const payload: any = { question: input.question };
-    if (prefix) payload.context = prefix;
+      const payload: any = { question: input.question };
+      if (prefix) payload.context = prefix;
+      if (input.fileName) payload.fileName = input.fileName;
 
-    let data: any;
-    try {
-      const resp = await fetch(
-        `${backendUrl.replace(/\/$/, "")}/query_with_sources`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        }
-      );
+      // call backend ML endpoint
+      const resp = await fetch(`${backendUrl.replace(/\/$/, "")}/query_with_sources`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
       if (!resp.ok) {
         const txt = await resp.text();
         throw new Error(`Backend error: ${resp.status} ${txt}`);
       }
 
-      data = await resp.json();
-    } catch (err) {
-      console.error("Backend fetch failed:", err);
-      return {
-        answer: "Sorry, the backend service is currently unavailable.",
-        sources: [],
-        sessionId,
-      };
-    }
+      const data = await resp.json();
 
-    // Save messages
-    await prisma.message.create({
-      data: { sessionId, role: "user", content: input.question },
-    });
-    await prisma.message.create({
-      data: { sessionId, role: "assistant", content: data.answer ?? "" },
-    });
+      // persist user + assistant messages
+      await prisma.message.create({
+        data: { sessionId, role: "user", content: input.question },
+      });
+      await prisma.message.create({
+        data: { sessionId, role: "assistant", content: data.answer ?? "" },
+      });
 
-    return { ...data, sessionId };
-  }),
-
+      // return backend result and sessionId for frontend
+      return { ...data, sessionId };
+    }),
 });
 
 export type AppRouter = typeof appRouter;
