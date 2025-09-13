@@ -65,3 +65,51 @@ cp frontend/.env.local.example frontend/.env.local
 
 # Start services
 docker-compose up --build
+
+```
+
+## Services
+
+- **Frontend** → [http://localhost:3000](http://localhost:3000)  
+- **Backend (Swagger UI)** → [http://localhost:8000/docs](http://localhost:8000/docs)  
+
+---
+
+## 🌍 Deployment
+
+### Frontend (Render)
+
+- Deploy `frontend/` as a **Static Site** on Render.  
+- Set environment variables:
+
+```env
+NEXT_PUBLIC_BACKEND_URL=https://paperrag-backend-296287667274.us-central1.run.app
+```
+
+## Backend (Cloud Run)
+
+Build and push the backend Docker image to **GCP Artifact Registry**.
+
+Deploy with Cloud Run:
+
+```bash
+gcloud run deploy paperrag-backend \
+  --source ./backend-python \
+  --platform managed \
+  --allow-unauthenticated \
+  --region us-central1
+```
+⚠️ **Note:** On Cloud Run, file storage (`uploads/`, `chroma_db/`, `prisma/dev.db`) is **ephemeral**.  
+For production, consider using a VM or Render with a persistent disk.
+
+---
+
+## 📌 Future Scope
+
+- ✅ Migrate from **SQLite → Postgres** (persistent, scalable)  
+- ✅ Replace local **Chroma DB → Pinecone / Weaviate / Milvus**  
+- 🔐 Add authentication (login, API keys)  
+- 📊 Add dashboards to view ingested files & queries  
+- 📱 Mobile-friendly UI
+
+
