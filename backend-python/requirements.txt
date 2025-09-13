@@ -12,16 +12,15 @@ langchain-openai          # optional if you call OpenAI (keeps imports clean)
 
 # HuggingFace / SentenceTransformers embeddings
 sentence-transformers
-transformers              # useful for some hf models
 
 # Specific langchain provider adapters (some projects use these names)
 langchain-chroma         # adapter utilities for chroma (some envs)
 langchain-huggingface    # huggingface adapter bindings (if used)
 
 # Document processing / OCR / PDF
-unstructured[all-docs]   # recommended for robust PDF parsing (includes many extras)
-pdfplumber               # alternate/supplemental PDF parsing
-pytesseract              # system Tesseract wrapper (needs Tesseract installed on OS)
+unstructured[pdf]   # recommended for robust PDF parsing (includes many extras)
+# pdfplumber               # alternate/supplemental PDF parsing
+# pytesseract              # system Tesseract wrapper (needs Tesseract installed on OS)
 Pillow                   # imaging
 
 # Image summarization / requests
@@ -30,4 +29,3 @@ requests
 # Utilities
 python-dotenv
 lxml
-chromadb                 # duplicate allowed, pip dedupes automatically

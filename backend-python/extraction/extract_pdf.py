@@ -1,6 +1,7 @@
-from unstructured.partition.pdf import partition_pdf
+
 
 def extract_pdf_elements(file_path: str):
+    from unstructured.partition.pdf import partition_pdf
     """
     Extracts text, tables, and images from a PDF using unstructured library.
     Returns a list of CompositeElements (text/tables/images).

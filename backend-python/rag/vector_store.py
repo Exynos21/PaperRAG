@@ -1,11 +1,12 @@
 # backend-python/rag/vector_store.py
-from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
+
 import os
 
 PERSIST_DIR = os.getenv("CHROMA_DB_DIR", "./chroma_db")
 
 def get_vectorstore():
+    from langchain_chroma import Chroma
+    from langchain_huggingface import HuggingFaceEmbeddings
     """
     Returns a persistent Chroma vectorstore with HuggingFace embeddings.
     Persists automatically so data survives restarts.
