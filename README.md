@@ -56,8 +56,8 @@ It allows users to upload PDFs (research papers, resumes, reports, etc.), proces
 Clone the repo and start everything with Docker Compose:
 
 ```bash
-git clone https://github.com/yourusername/paperrag.git
-cd paperrag
+git clone https://github.com/Exynos21/PaperRAG.git
+cd PaperRAG
 
 # Copy env files
 cp backend-python/.env.example backend-python/.env
